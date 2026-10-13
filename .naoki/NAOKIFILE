@@ -1,0 +1,35 @@
+COMPILER: "1.0"
+TAG: vite-react-v1
+IMAGE:
+  NAME: naoki/vite-react
+  BASE: node:22-alpine
+  WORKDIR: /workspace/repo
+  PORTS:
+    - "${nki.service.web.port}:5173"
+  CMD: ["sh"]
+  ENVIRONMENT:
+    VARIABLES:
+      NODE_ENV: development
+      NPM_CONFIG_FUND: "false"
+      NPM_CONFIG_AUDIT: "false"
+      NPM_CONFIG_UPDATE_NOTIFIER: "false"
+  BUILD:
+    - RUN: apk add --no-cache git
+  VERIFY:
+    - RUN: node --version
+    - RUN: npm --version
+    - RUN: git --version
+WORKFLOWS:
+  ENVIRONMENT:
+    CPU: "1"
+    MEMORY: "512Mi"
+    TIMEOUT: "30m"
+  SCRIPTS:
+    SETUP:
+      - RUN: npm ci --prefer-offline || npm install
+    RUN:
+      - RUN: npm run dev
+    CHECK:
+      - RUN: npm run lint
+    BUILD:
+      - RUN: npm run build
