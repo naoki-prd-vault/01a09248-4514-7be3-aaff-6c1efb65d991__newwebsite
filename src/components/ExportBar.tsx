@@ -25,6 +25,11 @@ export const ExportBar: React.FC<ExportBarProps> = ({
 
   const canWebShare = typeof navigator !== 'undefined' && !!navigator.share
 
+  const totalImages = chapters.reduce((acc, ch) => {
+    const matches = ch.content.match(/<img[^>]+>/gi)
+    return acc + (matches ? matches.length : 0)
+  }, 0)
+
   const handleGenerateAndDownload = async () => {
     if (!canvasRef.current) return
 
@@ -35,7 +40,7 @@ export const ExportBar: React.FC<ExportBarProps> = ({
       // 1. Export cover canvas to blob
       const coverBlob = await exportCanvasAsBlob(canvasRef.current)
 
-      // 2. Compile EPUB with standard structure and custom cover
+      // 2. Compile EPUB with standard structure, all embedded chapter images, and custom cover
       const epubBlob = await generateEpubBlob({
         metadata,
         chapters,
@@ -128,7 +133,9 @@ export const ExportBar: React.FC<ExportBarProps> = ({
               {metadata.title || 'Documento sin título'}
             </h4>
             <p className="export-meta">
-              Por {metadata.author || 'Autor'} · {chapters.length} {chapters.length === 1 ? 'sección' : 'secciones'} · Portada: {coverConfig.fontFamily}
+              Por {metadata.author || 'Autor'} · {chapters.length} {chapters.length === 1 ? 'sección' : 'secciones'}
+              {totalImages > 0 && ` · ${totalImages} ${totalImages === 1 ? 'imagen empaquetada' : 'imágenes empaquetadas'}`}
+              {` · Portada: ${coverConfig.fontFamily}`}
             </p>
           </div>
         </div>
@@ -156,7 +163,7 @@ export const ExportBar: React.FC<ExportBarProps> = ({
             {isGenerating ? (
               <>
                 <Loader2 size={18} className="spin-icon" />
-                <span>Compilando EPUB...</span>
+                <span>Empaquetando EPUB e imágenes...</span>
               </>
             ) : (
               <>
@@ -172,7 +179,7 @@ export const ExportBar: React.FC<ExportBarProps> = ({
         <div className="download-feedback-banner">
           <CheckCircle2 size={18} className="text-emerald" />
           <span>
-            ¡EPUB generado con éxito ({lastFileSize})! Haz doble clic en Mac o ábrelo en iPhone/iPad para disfrutarlo en <strong>Apple Books</strong>.
+            ¡EPUB generado con éxito ({lastFileSize}) con {totalImages} {totalImages === 1 ? 'imagen' : 'imágenes'} empaquetadas! Haz doble clic en Mac o ábrelo en iPhone/iPad para disfrutarlo en <strong>Apple Books</strong>.
           </span>
         </div>
       )}

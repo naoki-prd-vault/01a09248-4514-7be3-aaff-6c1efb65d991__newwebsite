@@ -1,7 +1,8 @@
 import React, { useState, useRef } from 'react'
-import { FileUp, Link2, Edit3, Loader2, AlertCircle, CheckCircle2, ArrowRight } from 'lucide-react'
+import { FileUp, Link2, Edit3, Loader2, AlertCircle, CheckCircle2, ArrowRight, BookMarked, Image as ImageIcon } from 'lucide-react'
 import type { SourceType, BookMetadata, Chapter } from '../types'
 import { parsePdfFile } from '../services/pdfParser'
+import { parseEpubFile } from '../services/epubParser'
 import { fetchWebArticle } from '../services/webArticleFetcher'
 
 interface SourceSelectorProps {
@@ -9,14 +10,17 @@ interface SourceSelectorProps {
     metadata: BookMetadata
     chapters: Chapter[]
     suggestedTag: string
+    coverDataUrl?: string
+    imageCount?: number
   }) => void
 }
 
 export const SourceSelector: React.FC<SourceSelectorProps> = ({ onDataLoaded }) => {
-  const [activeTab, setActiveTab] = useState<SourceType>('pdf')
+  const [activeTab, setActiveTab] = useState<SourceType | 'epub'>('pdf')
   const [isProcessing, setIsProcessing] = useState(false)
   const [statusMessage, setStatusMessage] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
+  const [successNotice, setSuccessNotice] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
 
   // URL state
@@ -30,20 +34,58 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({ onDataLoaded }) 
 
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const handlePdfUpload = async (file: File) => {
-    if (!file.name.toLowerCase().endsWith('.pdf')) {
-      setErrorMessage('Por favor selecciona un archivo con extensión .pdf')
+  const handleFileUpload = async (file: File) => {
+    const nameLower = file.name.toLowerCase()
+    const isEpub = nameLower.endsWith('.epub')
+    const isPdf = nameLower.endsWith('.pdf')
+
+    if (!isPdf && !isEpub) {
+      setErrorMessage('Por favor selecciona un archivo con extensión .pdf o .epub')
       return
     }
 
     setErrorMessage('')
+    setSuccessNotice(null)
     setIsProcessing(true)
-    setStatusMessage('Iniciando lectura del PDF...')
 
+    if (isEpub) {
+      setStatusMessage('Analizando estructura del archivo EPUB...')
+      try {
+        const result = await parseEpubFile(file, (msg) => setStatusMessage(msg))
+        setSuccessNotice(
+          `EPUB importado con éxito: ${result.chapters.length} secciones y ${result.imageCount} imagen(es) detectada(s).`
+        )
+        onDataLoaded({
+          metadata: result.metadata,
+          chapters: result.chapters,
+          suggestedTag: 'LIBRO EPUB',
+          coverDataUrl: result.coverDataUrl,
+          imageCount: result.imageCount,
+        })
+      } catch (err: unknown) {
+        console.error('Error importing EPUB', err)
+        setErrorMessage(
+          err instanceof Error
+            ? err.message
+            : 'No se pudo leer el archivo EPUB. Comprueba que el archivo no esté dañado.'
+        )
+      } finally {
+        setIsProcessing(false)
+        setStatusMessage('')
+      }
+      return
+    }
+
+    // PDF branch
+    setStatusMessage('Iniciando lectura y detección de texto e imágenes en PDF...')
     try {
       const result = await parsePdfFile(file, (progress) => {
         setStatusMessage(progress.stage)
       })
+
+      setSuccessNotice(
+        `PDF procesado: ${result.chapters.length} secciones y ${result.extractedImagesCount} imágenes detectadas.`
+      )
 
       onDataLoaded({
         metadata: {
@@ -55,13 +97,16 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({ onDataLoaded }) 
         },
         chapters: result.chapters,
         suggestedTag: result.pageCount > 15 ? 'RESEARCH PAPER' : 'DOCUMENTO PDF',
+        imageCount: result.extractedImagesCount,
       })
-      setStatusMessage('')
     } catch (err: unknown) {
-      console.error(err)
-      setErrorMessage('Error al procesar el archivo PDF. Asegúrate de que no esté protegido con contraseña.')
+      console.error('Error parsing PDF', err)
+      setErrorMessage(
+        'Error al procesar el archivo PDF. Asegúrate de que no esté protegido con contraseña.'
+      )
     } finally {
       setIsProcessing(false)
+      setStatusMessage('')
     }
   }
 
@@ -70,22 +115,28 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({ onDataLoaded }) 
     if (!urlInput.trim()) return
 
     setErrorMessage('')
+    setSuccessNotice(null)
     setIsProcessing(true)
-    setStatusMessage('Extrayendo contenido del enlace...')
+    setStatusMessage('Extrayendo texto e ilustraciones del enlace...')
 
     try {
       const result = await fetchWebArticle(urlInput, (status) => setStatusMessage(status))
+      setSuccessNotice(
+        `Artículo importado: ${result.chapters.length} capítulos y ${result.imageCount} imagen(es) detectada(s).`
+      )
       onDataLoaded({
         metadata: result.metadata,
         chapters: result.chapters,
         suggestedTag: 'BLOG & ARTÍCULO',
+        imageCount: result.imageCount,
       })
-      setStatusMessage('')
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Error desconocido al descargar la página.'
+      const message =
+        err instanceof Error ? err.message : 'Error desconocido al descargar la página.'
       setErrorMessage(message)
     } finally {
       setIsProcessing(false)
+      setStatusMessage('')
     }
   }
 
@@ -97,19 +148,19 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({ onDataLoaded }) 
     }
     setErrorMessage('')
 
-    // Divide content by double linebreaks or headings
     const paras = manualContent
       .split(/\n\s*\n/)
-      .map(p => p.trim())
+      .map((p) => p.trim())
       .filter(Boolean)
 
     const chapters: Chapter[] = [
       {
         id: 'manual-1',
         title: manualTitle,
-        content: paras.length > 0
-          ? paras.map(p => `<p>${p.replace(/\n/g, '<br/>')}</p>`).join('\n')
-          : '<p>Documento preparado para Apple Books.</p>',
+        content:
+          paras.length > 0
+            ? paras.map((p) => `<p>${p.replace(/\n/g, '<br/>')}</p>`).join('\n')
+            : '<p>Documento preparado para Apple Books.</p>',
       },
     ]
 
@@ -132,25 +183,34 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({ onDataLoaded }) 
         <button
           type="button"
           className={`source-tab-btn ${activeTab === 'pdf' ? 'active' : ''}`}
-          onClick={() => { setActiveTab('pdf'); setErrorMessage('') }}
+          onClick={() => {
+            setActiveTab('pdf')
+            setErrorMessage('')
+          }}
         >
           <FileUp size={18} />
-          <span>Subir PDF</span>
+          <span>Subir PDF o EPUB</span>
         </button>
 
         <button
           type="button"
           className={`source-tab-btn ${activeTab === 'url' ? 'active' : ''}`}
-          onClick={() => { setActiveTab('url'); setErrorMessage('') }}
+          onClick={() => {
+            setActiveTab('url')
+            setErrorMessage('')
+          }}
         >
           <Link2 size={18} />
-          <span>Enlace de Blog / Paper</span>
+          <span>Enlace Web / Blog</span>
         </button>
 
         <button
           type="button"
           className={`source-tab-btn ${activeTab === 'manual' ? 'active' : ''}`}
-          onClick={() => { setActiveTab('manual'); setErrorMessage('') }}
+          onClick={() => {
+            setActiveTab('manual')
+            setErrorMessage('')
+          }}
         >
           <Edit3 size={18} />
           <span>Texto o Markdown</span>
@@ -162,6 +222,13 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({ onDataLoaded }) 
           <div className="alert-box error">
             <AlertCircle size={18} />
             <span>{errorMessage}</span>
+          </div>
+        )}
+
+        {successNotice && (
+          <div className="alert-box success">
+            <CheckCircle2 size={18} />
+            <span>{successNotice}</span>
           </div>
         )}
 
@@ -184,7 +251,7 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({ onDataLoaded }) 
               e.preventDefault()
               setDragOver(false)
               if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-                handlePdfUpload(e.dataTransfer.files[0])
+                handleFileUpload(e.dataTransfer.files[0])
               }
             }}
             onClick={() => fileInputRef.current?.click()}
@@ -192,27 +259,38 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({ onDataLoaded }) 
             <input
               type="file"
               ref={fileInputRef}
-              accept=".pdf"
+              accept=".pdf,.epub"
               style={{ display: 'none' }}
               onChange={(e) => {
                 if (e.target.files && e.target.files[0]) {
-                  handlePdfUpload(e.target.files[0])
+                  handleFileUpload(e.target.files[0])
                 }
               }}
             />
             <div className="dropzone-icon-circle">
               <FileUp size={32} />
             </div>
-            <h3 className="dropzone-title">Arrastra tu archivo PDF aquí</h3>
-            <p className="dropzone-subtitle">o haz clic para buscar en tus carpetas (papers, reportes, libros)</p>
-            <span className="dropzone-tag">Convierte automáticamente texto y estructura a formato EPUB</span>
+            <h3 className="dropzone-title">Arrastra tu archivo PDF o EPUB aquí</h3>
+            <p className="dropzone-subtitle">
+              Soporta libros electrónicos, papers científicos, reportes y artículos con imágenes
+            </p>
+            <div className="dropzone-features-row">
+              <span className="dropzone-tag">
+                <ImageIcon size={12} style={{ display: 'inline', marginRight: '4px' }} />
+                Detección y extracción automática de imágenes
+              </span>
+              <span className="dropzone-tag">
+                <BookMarked size={12} style={{ display: 'inline', marginRight: '4px' }} />
+                Estructura de capítulos e índice
+              </span>
+            </div>
           </div>
         )}
 
         {activeTab === 'url' && (
           <form className="url-form" onSubmit={handleUrlFetch}>
             <p className="tab-explainer">
-              Introduce la URL de un post de Substack, Medium, blog personal, paper de arXiv o artículo web.
+              Introduce la URL de un post de Substack, Medium, blog personal, paper de arXiv o artículo web. Detectamos e importamos automáticamente texto e ilustraciones.
             </p>
             <div className="url-input-group">
               <input
@@ -229,7 +307,7 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({ onDataLoaded }) 
                 disabled={isProcessing || !urlInput.trim()}
               >
                 {isProcessing ? <Loader2 size={16} className="spin-icon" /> : <ArrowRight size={16} />}
-                <span>Convertir Enlace</span>
+                <span>Importar con Imágenes</span>
               </button>
             </div>
             <div className="url-examples">
@@ -288,11 +366,11 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({ onDataLoaded }) 
               />
             </div>
             <div className="form-field">
-              <label className="field-label">Contenido (Texto o Markdown)</label>
+              <label className="field-label">Contenido (Texto, Markdown o HTML con imágenes)</label>
               <textarea
                 className="textarea-input"
                 rows={6}
-                placeholder="Pega aquí el contenido de tu paper, ensayo o notas..."
+                placeholder="Pega aquí el texto, markdown o etiquetas &lt;img src=&quot;...&quot;&gt; de tu contenido..."
                 value={manualContent}
                 onChange={(e) => setManualContent(e.target.value)}
               />

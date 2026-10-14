@@ -4,6 +4,7 @@ export interface FetchResult {
   metadata: BookMetadata
   chapters: Chapter[]
   rawContent: string
+  imageCount: number
 }
 
 export async function fetchWebArticle(
@@ -17,7 +18,7 @@ export async function fetchWebArticle(
 
   onStatus?.('Conectando y extrayendo contenido del artículo...')
 
-  // Strategy 1: Jina Reader API (optimized for converting web/blogs/papers to clean Markdown)
+  // Strategy 1: Jina Reader API (optimized for converting web/blogs/papers to clean Markdown with images)
   try {
     const jinaUrl = `https://r.jina.ai/${targetUrl}`
     const response = await fetch(jinaUrl, {
@@ -52,7 +53,7 @@ export async function fetchWebArticle(
     console.warn('AllOrigins proxy failed', err)
   }
 
-  throw new Error('No se pudo extraer el contenido automáticamente debido a restricciones de seguridad del sitio. Puedes pegar el texto o HTML directamente en la pestaña "Texto / Paper".')
+  throw new Error('No se pudo extraer el contenido automáticamente debido a restricciones del sitio. Puedes usar la pestaña "Texto o Markdown" para importar el texto.')
 }
 
 function parseMarkdownArticle(markdown: string, originalUrl: string): FetchResult {
@@ -91,6 +92,7 @@ function parseMarkdownArticle(markdown: string, originalUrl: string): FetchResul
   const chapters: Chapter[] = []
   let currentTitle = 'Introducción'
   let currentLines: string[] = []
+  let totalImages = 0
 
   for (const line of lines) {
     const headingMatch = line.match(/^#{1,3}\s+(.+)$/)
@@ -98,10 +100,12 @@ function parseMarkdownArticle(markdown: string, originalUrl: string): FetchResul
       const headingText = headingMatch[1].trim()
       if (headingText.toLowerCase() !== title.toLowerCase()) {
         if (currentLines.length > 0) {
+          const { html, imgCount } = markdownLinesToHtml(currentLines, originalUrl)
+          totalImages += imgCount
           chapters.push({
             id: 'sec-' + (chapters.length + 1),
             title: currentTitle,
-            content: markdownLinesToHtml(currentLines),
+            content: html,
           })
           currentLines = []
         }
@@ -113,10 +117,12 @@ function parseMarkdownArticle(markdown: string, originalUrl: string): FetchResul
   }
 
   if (currentLines.length > 0) {
+    const { html, imgCount } = markdownLinesToHtml(currentLines, originalUrl)
+    totalImages += imgCount
     chapters.push({
       id: 'sec-' + (chapters.length + 1),
       title: currentTitle,
-      content: markdownLinesToHtml(currentLines),
+      content: html,
     })
   }
 
@@ -132,53 +138,72 @@ function parseMarkdownArticle(markdown: string, originalUrl: string): FetchResul
       {
         id: 'sec-1',
         title: title,
-        content: markdownLinesToHtml(lines),
+        content: markdownLinesToHtml(lines, originalUrl).html,
       }
     ],
     rawContent: markdown,
+    imageCount: totalImages,
   }
 }
 
-function markdownLinesToHtml(lines: string[]): string {
-  const paras: string[] = []
-  let cur: string[] = []
+function markdownLinesToHtml(lines: string[], baseUrl: string): { html: string; imgCount: number } {
+  const parts: string[] = []
+  let curPara: string[] = []
+  let imgCount = 0
+
+  const flushPara = () => {
+    if (curPara.length > 0) {
+      const text = curPara.join(' ')
+      let formatted = escape(text)
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.*?)\*/g, '<em>$1</em>')
+      parts.push(`<p>${formatted}</p>`)
+      curPara = []
+    }
+  }
 
   for (const rawLine of lines) {
     const line = rawLine.trim()
     if (!line) {
-      if (cur.length > 0) {
-        paras.push(cur.join(' '))
-        cur = []
+      flushPara()
+      continue
+    }
+
+    // Check for markdown image: ![alt](url)
+    const imgMatch = line.match(/^!\[([^\]]*)\]\(([^)]+)\)$/)
+    if (imgMatch) {
+      flushPara()
+      const alt = imgMatch[1].trim()
+      let imgUrl = imgMatch[2].trim()
+      // remove optional quotes in url
+      imgUrl = imgUrl.split(/\s+"/)[0]
+
+      try {
+        imgUrl = new URL(imgUrl, baseUrl).href
+      } catch {
+        // Keep as is
       }
-    } else if (line.startsWith('>')) {
-      if (cur.length > 0) {
-        paras.push(cur.join(' '))
-        cur = []
-      }
-      paras.push(`<blockquote>${escape(line.replace(/^>\s*/, ''))}</blockquote>`)
+
+      imgCount++
+      parts.push(
+        `<figure class="epub-figure"><img src="${imgUrl}" alt="${escape(alt || 'Ilustración')}" /><figcaption>${escape(alt || 'Ilustración del artículo')}</figcaption></figure>`
+      )
+      continue
+    }
+
+    if (line.startsWith('>')) {
+      flushPara()
+      parts.push(`<blockquote>${escape(line.replace(/^>\s*/, ''))}</blockquote>`)
     } else if (line.startsWith('- ') || line.startsWith('* ')) {
-      if (cur.length > 0) {
-        paras.push(cur.join(' '))
-        cur = []
-      }
-      paras.push(`<li>${escape(line.substring(2))}</li>`)
+      flushPara()
+      parts.push(`<li>${escape(line.substring(2))}</li>`)
     } else {
-      cur.push(line)
+      curPara.push(line)
     }
   }
-  if (cur.length > 0) {
-    paras.push(cur.join(' '))
-  }
+  flushPara()
 
-  return paras
-    .map(p => {
-      if (p.startsWith('<blockquote>') || p.startsWith('<li>')) return p
-      let formatted = escape(p)
-        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-        .replace(/\*(.*?)\*/g, '<em>$1</em>')
-      return `<p>${formatted}</p>`
-    })
-    .join('\n')
+  return { html: parts.join('\n'), imgCount }
 }
 
 function parseHtmlArticle(html: string, originalUrl: string): FetchResult {
@@ -202,18 +227,71 @@ function parseHtmlArticle(html: string, originalUrl: string): FetchResult {
     doc.querySelector('.post-content, .entry-content, .article-content, main') ||
     doc.body
 
-  contentEl.querySelectorAll('script, style, iframe, nav, footer, header, noscript, .ads, .comments').forEach(el => el.remove())
+  // Remove scripts, styles, forms, navigation and ads
+  contentEl.querySelectorAll('script, style, iframe, nav, footer, header, noscript, .ads, .comments, form').forEach(el => el.remove())
 
-  const paragraphs = Array.from(contentEl.querySelectorAll('p, h2, h3, blockquote'))
-    .map(el => {
-      const tag = el.tagName.toLowerCase()
-      const text = el.textContent?.trim() || ''
-      if (!text) return ''
-      if (tag === 'h2' || tag === 'h3') return `<h3>${escape(text)}</h3>`
-      if (tag === 'blockquote') return `<blockquote>${escape(text)}</blockquote>`
-      return `<p>${escape(text)}</p>`
-    })
-    .filter(Boolean)
+  let imageCount = 0
+  const elements = Array.from(contentEl.querySelectorAll('p, h2, h3, blockquote, figure, img'))
+  const paragraphs: string[] = []
+
+  elements.forEach((el) => {
+    const tag = el.tagName.toLowerCase()
+
+    if (tag === 'img') {
+      // If already inside figure, avoid double inclusion
+      if (el.closest('figure')) return
+
+      const imgEl = el as HTMLImageElement
+      let src = imgEl.getAttribute('data-src') || imgEl.getAttribute('data-original') || imgEl.getAttribute('src') || ''
+      if (!src) return
+
+      try {
+        src = new URL(src, originalUrl).href
+      } catch {
+        // Keep as is
+      }
+
+      const alt = imgEl.getAttribute('alt') || 'Imagen del artículo'
+      if (!src.includes('1x1') && !src.includes('tracking') && !src.includes('pixel')) {
+        imageCount++
+        paragraphs.push(
+          `<figure class="epub-figure"><img src="${src}" alt="${escape(alt)}" /><figcaption>${escape(alt)}</figcaption></figure>`
+        )
+      }
+      return
+    }
+
+    if (tag === 'figure') {
+      const img = el.querySelector('img')
+      if (img) {
+        let src = img.getAttribute('data-src') || img.getAttribute('data-original') || img.getAttribute('src') || ''
+        if (src) {
+          try {
+            src = new URL(src, originalUrl).href
+          } catch {
+            // Keep as is
+          }
+          const alt = img.getAttribute('alt') || el.querySelector('figcaption')?.textContent?.trim() || 'Ilustración'
+          const caption = el.querySelector('figcaption')?.textContent?.trim() || alt
+          imageCount++
+          paragraphs.push(
+            `<figure class="epub-figure"><img src="${src}" alt="${escape(alt)}" /><figcaption>${escape(caption)}</figcaption></figure>`
+          )
+        }
+      }
+      return
+    }
+
+    const text = el.textContent?.trim() || ''
+    if (!text) return
+    if (tag === 'h2' || tag === 'h3') {
+      paragraphs.push(`<h3>${escape(text)}</h3>`)
+    } else if (tag === 'blockquote') {
+      paragraphs.push(`<blockquote>${escape(text)}</blockquote>`)
+    } else {
+      paragraphs.push(`<p>${escape(text)}</p>`)
+    }
+  })
 
   return {
     metadata: {
@@ -231,6 +309,7 @@ function parseHtmlArticle(html: string, originalUrl: string): FetchResult {
       },
     ],
     rawContent: contentEl.innerHTML,
+    imageCount,
   }
 }
 

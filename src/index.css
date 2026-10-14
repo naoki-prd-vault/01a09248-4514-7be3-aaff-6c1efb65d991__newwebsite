@@ -542,6 +542,20 @@ html, body {
   color: #d32f2f;
 }
 
+.alert-box.success {
+  background-color: #edf7ed;
+  border: 1px solid #c8e6c9;
+  color: #1b5e20;
+}
+
+.dropzone-features-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .processing-overlay {
   position: absolute;
   inset: 0;
@@ -1259,6 +1273,302 @@ html, body {
   margin-top: 20px;
   display: flex;
   justify-content: flex-end;
+}
+
+.highlight-pill {
+  background-color: #e5effa;
+  color: var(--apple-blue);
+  border: 1px solid rgba(0, 113, 227, 0.2);
+}
+
+.chapter-img-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background-color: #e5effa;
+  color: var(--apple-blue);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 12px;
+}
+
+.add-img-btn {
+  color: var(--apple-blue);
+}
+
+.add-img-btn:hover {
+  background-color: #e5effa;
+}
+
+/* Detected Images Strip in Chapter Editor */
+.detected-images-strip {
+  background-color: #ffffff;
+  border: 1px solid var(--apple-border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+
+.strip-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.strip-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--apple-text);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.images-thumbnails-row {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.image-thumb-card {
+  position: relative;
+  width: 140px;
+  flex-shrink: 0;
+  border: 1px solid var(--apple-border);
+  border-radius: 8px;
+  overflow: hidden;
+  background-color: #fafafc;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.thumb-preview-img {
+  width: 100%;
+  height: 90px;
+  object-fit: cover;
+  display: block;
+  background-color: #ffffff;
+}
+
+.thumb-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  background-color: #ffffff;
+  border-top: 1px solid var(--apple-border-light);
+}
+
+.thumb-caption {
+  font-size: 11px;
+  color: var(--apple-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+
+.thumb-remove-btn {
+  background: none;
+  border: none;
+  color: #86868b;
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: color 0.15s ease;
+}
+
+.thumb-remove-btn:hover {
+  color: #d32f2f;
+  background-color: #ffebee;
+}
+
+.no-images-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background-color: #fafafc;
+  border: 1px dashed var(--apple-border);
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--apple-text-secondary);
+  margin-bottom: 12px;
+}
+
+/* Image insertion modal */
+.image-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.image-modal-content {
+  background-color: #ffffff;
+  border-radius: 16px;
+  width: 100%;
+  max-width: 520px;
+  box-shadow: var(--apple-shadow-lg);
+  overflow: hidden;
+  animation: modalScaleIn 0.2s ease;
+}
+
+@keyframes modalScaleIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--apple-border);
+}
+
+.modal-title-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--apple-text);
+}
+
+.modal-body {
+  padding: 20px;
+}
+
+.modal-tabs {
+  display: flex;
+  gap: 8px;
+  background-color: #f2f2f7;
+  padding: 4px;
+  border-radius: 10px;
+  margin-bottom: 16px;
+}
+
+.modal-tab-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--apple-text-secondary);
+  cursor: pointer;
+}
+
+.modal-tab-btn.active {
+  background-color: #ffffff;
+  color: var(--apple-blue);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.modal-upload-area {
+  border: 2px dashed #c7c7cc;
+  border-radius: 12px;
+  padding: 24px;
+  text-align: center;
+  cursor: pointer;
+  background-color: #fafafc;
+  transition: all 0.2s ease;
+}
+
+.modal-upload-area:hover {
+  border-color: var(--apple-blue);
+  background-color: #f0f7ff;
+}
+
+.modal-preview-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.modal-img-preview {
+  max-width: 100%;
+  max-height: 180px;
+  border-radius: 8px;
+  object-fit: contain;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.change-img-text {
+  font-size: 11px;
+  color: var(--apple-blue);
+  font-weight: 600;
+}
+
+.modal-upload-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.placeholder-primary {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--apple-text);
+}
+
+.placeholder-sub {
+  font-size: 11px;
+  color: var(--apple-text-secondary);
+}
+
+.modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 20px;
+  background-color: #fafafc;
+  border-top: 1px solid var(--apple-border);
+}
+
+/* Prose preview figure styling */
+.rendered-prose figure {
+  margin: 1.5em 0;
+  text-align: center;
+}
+
+.rendered-prose img {
+  max-width: 100%;
+  height: auto;
+  margin: 0.8em auto;
+  border-radius: 6px;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.08);
+  display: block;
+}
+
+.rendered-prose figcaption {
+  font-size: 12px;
+  color: #6e6e73;
+  margin-top: 6px;
+  font-style: italic;
+  text-align: center;
 }
 
 /* ==========================================================================

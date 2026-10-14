@@ -10,15 +10,91 @@ function escapeXml(unsafe: string): string {
     .replace(/'/g, '&apos;')
 }
 
+export interface ExtractedImageResource {
+  id: string
+  originalSrc: string
+  epubPath: string // e.g. "images/img_1.png"
+  zipPath: string // e.g. "OEBPS/images/img_1.png"
+  mediaType: string
+  data: Uint8Array
+}
+
+function parseDataUrl(dataUrl: string): { mediaType: string; data: Uint8Array } | null {
+  try {
+    const match = dataUrl.match(/^data:([^;]+);base64,(.*)$/)
+    if (match) {
+      const mediaType = match[1].toLowerCase()
+      const binary = atob(match[2])
+      const bytes = new Uint8Array(binary.length)
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i)
+      }
+      return { mediaType, data: bytes }
+    }
+
+    const svgMatch = dataUrl.match(/^data:image\/svg\+xml;?(?:utf8|charset=utf-8)?,(.*)$/i)
+    if (svgMatch) {
+      const text = decodeURIComponent(svgMatch[1])
+      const encoder = new TextEncoder()
+      return { mediaType: 'image/svg+xml', data: encoder.encode(text) }
+    }
+  } catch (err) {
+    console.warn('Failed to parse data URL', err)
+  }
+  return null
+}
+
+async function fetchRemoteImage(url: string): Promise<{ mediaType: string; data: Uint8Array } | null> {
+  try {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 6000)
+    const res = await fetch(url, { signal: controller.signal })
+    clearTimeout(timer)
+    if (!res.ok) return null
+    const blob = await res.blob()
+    const buffer = await blob.arrayBuffer()
+    let mediaType = blob.type
+    if (!mediaType || mediaType === 'application/octet-stream') {
+      const lower = url.toLowerCase()
+      if (lower.endsWith('.png')) mediaType = 'image/png'
+      else if (lower.endsWith('.gif')) mediaType = 'image/gif'
+      else if (lower.endsWith('.webp')) mediaType = 'image/webp'
+      else if (lower.endsWith('.svg')) mediaType = 'image/svg+xml'
+      else mediaType = 'image/jpeg'
+    }
+    return { mediaType, data: new Uint8Array(buffer) }
+  } catch (err) {
+    console.warn('Could not fetch external image for EPUB:', url, err)
+    return null
+  }
+}
+
+function getExtensionForMediaType(mediaType: string): string {
+  switch (mediaType) {
+    case 'image/png':
+      return 'png'
+    case 'image/gif':
+      return 'gif'
+    case 'image/webp':
+      return 'webp'
+    case 'image/svg+xml':
+      return 'svg'
+    case 'image/jpeg':
+    case 'image/jpg':
+    default:
+      return 'jpg'
+  }
+}
+
 function cleanHtmlForEpub(html: string): string {
   if (!html) return '<p></p>'
   // If it's plain text without tags, wrap paragraphs
-  if (!html.includes('<p>') && !html.includes('<div>') && !html.includes('<h')) {
+  if (!html.includes('<p>') && !html.includes('<div>') && !html.includes('<h') && !html.includes('<img')) {
     const paragraphs = html
       .split(/\n\s*\n/)
-      .map(p => p.trim())
-      .filter(p => p.length > 0)
-    return paragraphs.map(p => `<p>${escapeXml(p).replace(/\n/g, '<br/>')}</p>`).join('\n')
+      .map((p) => p.trim())
+      .filter((p) => p.length > 0)
+    return paragraphs.map((p) => `<p>${escapeXml(p).replace(/\n/g, '<br/>')}</p>`).join('\n')
   }
 
   // Ensure self-closing tags for XHTML compatibility (<br/>, <hr/>, <img ... />)
@@ -62,7 +138,68 @@ export async function generateEpubBlob({
 </container>`
   zip.file('META-INF/container.xml', containerXml)
 
-  // 3. OEBPS/style.css (Apple Books optimized typography)
+  // 3. Extract all images embedded in chapters
+  const validChapters = chapters.length > 0
+    ? chapters
+    : [{ id: 'chap-1', title: 'Contenido', content: '<p>Documento convertido con EpubCraft.</p>' }]
+
+  const imageResources: ExtractedImageResource[] = []
+  const srcToResourceMap = new Map<string, ExtractedImageResource>()
+  let imgCounter = 1
+
+  // Collect all unique image src in chapters
+  for (const chapter of validChapters) {
+    const imgRegex = /<img[^>]+src=["']([^"']+)["'][^>]*>/gi
+    let match: RegExpExecArray | null
+    while ((match = imgRegex.exec(chapter.content)) !== null) {
+      const src = match[1]
+      if (src && !srcToResourceMap.has(src)) {
+        let extracted: { mediaType: string; data: Uint8Array } | null = null
+
+        if (src.startsWith('data:')) {
+          extracted = parseDataUrl(src)
+        } else if (src.startsWith('http://') || src.startsWith('https://')) {
+          extracted = await fetchRemoteImage(src)
+        } else if (src.startsWith('blob:')) {
+          try {
+            const blobRes = await fetch(src)
+            const buf = await blobRes.arrayBuffer()
+            extracted = {
+              mediaType: blobRes.type || 'image/jpeg',
+              data: new Uint8Array(buf),
+            }
+          } catch {
+            extracted = null
+          }
+        }
+
+        if (extracted) {
+          const ext = getExtensionForMediaType(extracted.mediaType)
+          const imgId = `img_${imgCounter++}`
+          const epubPath = `images/${imgId}.${ext}`
+          const zipPath = `OEBPS/${epubPath}`
+
+          const resource: ExtractedImageResource = {
+            id: imgId,
+            originalSrc: src,
+            epubPath,
+            zipPath,
+            mediaType: extracted.mediaType,
+            data: extracted.data,
+          }
+          srcToResourceMap.set(src, resource)
+          imageResources.push(resource)
+        }
+      }
+    }
+  }
+
+  // Add all extracted chapter images to ZIP
+  for (const res of imageResources) {
+    zip.file(res.zipPath, res.data)
+  }
+
+  // 4. OEBPS/style.css (Optimized typography & responsive figure / image styling)
   const styleCss = `
 @charset "utf-8";
 body {
@@ -95,7 +232,7 @@ p {
   margin-bottom: 1.1em;
   text-indent: 1.2em;
 }
-p:first-of-type, h1 + p, h2 + p, h3 + p, blockquote + p {
+p:first-of-type, h1 + p, h2 + p, h3 + p, blockquote + p, figure + p {
   text-indent: 0;
 }
 blockquote {
@@ -121,12 +258,28 @@ pre {
 code {
   padding: 0.15em 0.3em;
 }
+
+/* Image & Figure styling for Apple Books & e-readers */
+figure {
+  margin: 2em 0;
+  text-align: center;
+  page-break-inside: avoid;
+}
 img {
   max-width: 100%;
   height: auto;
   display: block;
   margin: 1.5em auto;
   border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+}
+figcaption {
+  font-family: -apple-system, "Helvetica Neue", sans-serif;
+  font-size: 0.85em;
+  color: #6e6e73;
+  margin-top: 0.6em;
+  font-style: italic;
+  text-align: center;
 }
 hr {
   border: 0;
@@ -144,21 +297,14 @@ hr {
   color: #86868b;
   margin-bottom: 0.3em;
 }
-.meta-box {
-  margin: 1.5em 0;
-  padding: 1em;
-  background-color: #f5f5f7;
-  border-radius: 8px;
-  font-size: 0.9em;
-}
 `
   zip.file('OEBPS/style.css', styleCss)
 
-  // 4. Add cover image binary
+  // 5. Add cover image binary
   const coverArrayBuffer = await coverImageBlob.arrayBuffer()
   zip.file('OEBPS/cover.png', coverArrayBuffer)
 
-  // 5. OEBPS/cover.xhtml
+  // 6. OEBPS/cover.xhtml
   const coverXhtml = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="${lang}" lang="${lang}">
@@ -199,14 +345,18 @@ hr {
 </html>`
   zip.file('OEBPS/cover.xhtml', coverXhtml)
 
-  // 6. Chapters XHTML
-  const validChapters = chapters.length > 0
-    ? chapters
-    : [{ id: 'chap-1', title: 'Contenido', content: '<p>Documento convertido con EpubCraft.</p>' }]
-
+  // 7. Chapters XHTML (with replaced image paths)
   validChapters.forEach((ch, idx) => {
     const chapTitle = escapeXml(ch.title || `Capítulo ${idx + 1}`)
-    const chapHtml = cleanHtmlForEpub(ch.content)
+    let chapRawHtml = ch.content
+
+    // Replace original image src with the internal epub path (e.g. images/img_1.png)
+    srcToResourceMap.forEach((res) => {
+      // Replace exact matches
+      chapRawHtml = chapRawHtml.split(res.originalSrc).join(res.epubPath)
+    })
+
+    const chapHtml = cleanHtmlForEpub(chapRawHtml)
     const contentDoc = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="${lang}" lang="${lang}">
@@ -230,7 +380,7 @@ hr {
     zip.file(`OEBPS/chapter-${idx + 1}.xhtml`, contentDoc)
   })
 
-  // 7. OEBPS/nav.xhtml (EPUB 3 Navigation Document)
+  // 8. OEBPS/nav.xhtml (EPUB 3 Navigation Document)
   const navItems = validChapters
     .map((ch, idx) => `      <li><a href="chapter-${idx + 1}.xhtml">${escapeXml(ch.title || `Capítulo ${idx + 1}`)}</a></li>`)
     .join('\n')
@@ -254,7 +404,7 @@ ${navItems}
 </html>`
   zip.file('OEBPS/nav.xhtml', navXhtml)
 
-  // 8. OEBPS/toc.ncx (EPUB 2 / Backwards compatibility for Apple Books & e-readers)
+  // 9. OEBPS/toc.ncx (EPUB 2 / Backwards compatibility for Apple Books & e-readers)
   const navPoints = validChapters
     .map(
       (ch, idx) => `    <navPoint id="navPoint-${idx + 1}" playOrder="${idx + 1}">
@@ -284,11 +434,18 @@ ${navPoints}
 </ncx>`
   zip.file('OEBPS/toc.ncx', tocNcx)
 
-  // 9. OEBPS/content.opf (The Package Document)
-  const manifestItems = validChapters
+  // 10. OEBPS/content.opf (The Package Document)
+  const manifestChapters = validChapters
     .map(
       (_, idx) =>
         `    <item id="chapter-${idx + 1}" href="chapter-${idx + 1}.xhtml" media-type="application/xhtml+xml"/>`
+    )
+    .join('\n')
+
+  const manifestImages = imageResources
+    .map(
+      (res) =>
+        `    <item id="${res.id}" href="${res.epubPath}" media-type="${res.mediaType}"/>`
     )
     .join('\n')
 
@@ -316,7 +473,8 @@ ${navPoints}
     <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
     <item id="toc" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
     <item id="style" href="style.css" media-type="text/css"/>
-${manifestItems}
+${manifestChapters}
+${manifestImages ? manifestImages : ''}
   </manifest>
   <spine toc="toc">
     <itemref idref="cover" linear="yes"/>
