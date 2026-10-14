@@ -197,7 +197,6 @@ const CREATIVE_FRONTIER_SVG = `data:image/svg+xml;utf8,${encodeURIComponent(`
   <text x="360" y="348" font-family="-apple-system, sans-serif" font-size="12" font-style="italic" fill="#92400e" text-anchor="middle">"La intersección donde el esfuerzo diario se convierte en maestría duradera."</text>
 </svg>
 `)}`
-
 export const SAMPLE_PAPER = {
   metadata: {
     title: 'Attention Is All You Need',
@@ -255,12 +254,10 @@ export const SAMPLE_PAPER = {
       content: `
         <p>La mayoría de los modelos neuronales de transducción de secuencias competitivos tienen una estructura de codificador-decodificador. Aquí, el codificador mapea una secuencia de entrada de representaciones de símbolos a una secuencia de representaciones continuas.</p>
         <p>Dada la secuencia codificada, el decodificador luego genera una secuencia de salida de símbolos elemento por elemento. En cada paso, el modelo es auto-regresivo, consumiendo los símbolos generados previamente como entrada adicional al generar el siguiente.</p>
-        
         <figure class="epub-figure">
           <img src="${TRANSFORMER_ARCHITECTURE_SVG}" alt="Diagrama de la Arquitectura Transformer" />
           <figcaption>Figura 1: Arquitectura Transformer completa mostrando el flujo entre Encoder y Decoder con atención multi-cabeza.</figcaption>
         </figure>
-
         <h3>Scaled Dot-Product Attention</h3>
         <p>Llamamos a nuestra atención particular <strong>Scaled Dot-Product Attention</strong>. La entrada consiste en consultas (queries) y claves (keys) de dimensión d_k, y valores (values) de dimensión d_v. Calculamos los productos punto de la consulta con todas las claves, dividimos cada uno por la raíz cuadrada de d_k, y aplicamos una función softmax para obtener los pesos de los valores.</p>
         <p>En la práctica, calculamos la función de atención en un conjunto de consultas simultáneamente, empaquetadas juntas en una matriz Q. Las claves y valores también se empaquetan en matrices K y V.</p>
@@ -323,12 +320,10 @@ export const SAMPLE_BLOG = {
       title: 'Aprender lo suficiente hasta el límite',
       content: `
         <p>Una vez que encuentras algo que te interesa, el siguiente paso es aprender lo suficiente sobre el campo hasta alcanzar su frontera actual. El conocimiento se expande como un fractal; desde lejos parece suave, pero cuando te acercas a cualquier borde, está lleno de preguntas abiertas y vacíos que nadie ha resuelto todavía.</p>
-        
         <figure class="epub-figure">
           <img src="${CREATIVE_FRONTIER_SVG}" alt="Diagrama de los tres círculos del gran trabajo" />
           <figcaption>Ilustración: La convergencia entre aptitud natural, curiosidad obsesiva y frontera abierta de conocimiento.</figcaption>
         </figure>
-
         <p>Llegar a la frontera requiere esfuerzo y constancia, pero notarás que el esfuerzo no pesa cuando la curiosidad genuina es tu motor principal. En ese punto, empiezas a notar las cosas que la gente suele pasar por alto.</p>
       `,
     },

@@ -268,6 +268,7 @@ function renderTitle(
   W: number,
   _H: number
 ): number {
+  void _H
   ctx.save()
   const fontSize = config.titleFontSize || 64
   ctx.font = `bold ${fontSize}px "${config.fontFamily}", serif, sans-serif`
@@ -371,6 +372,7 @@ function renderAuthor(
   W: number,
   _H: number
 ) {
+  void _H
   ctx.save()
   const fontSize = config.authorFontSize || 34
   ctx.font = `600 ${fontSize}px "${config.fontFamily}", sans-serif`
