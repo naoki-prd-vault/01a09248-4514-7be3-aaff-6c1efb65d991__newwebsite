@@ -173,7 +173,7 @@ function markdownLinesToHtml(lines: string[]): string {
   return paras
     .map(p => {
       if (p.startsWith('<blockquote>') || p.startsWith('<li>')) return p
-      let formatted = escape(p)
+      const formatted = escape(p)
         .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
         .replace(/\*(.*?)\*/g, '<em>$1</em>')
       return `<p>${formatted}</p>`
