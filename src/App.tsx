@@ -20,11 +20,19 @@ export function App() {
   // Navigation tab state
   const [activeStep, setActiveStep] = useState<'source' | 'cover' | 'chapters' | 'guide'>('cover')
 
-  // Handle new source loaded (from PDF, URL or manual text)
+  // Total images across all chapters
+  const totalImages = chapters.reduce((acc, ch) => {
+    const matches = ch.content.match(/<img[^>]+>/gi)
+    return acc + (matches ? matches.length : 0)
+  }, 0)
+
+  // Handle new source loaded (from PDF, EPUB, URL or manual text)
   const handleDataLoaded = (data: {
     metadata: BookMetadata
     chapters: Chapter[]
     suggestedTag: string
+    coverDataUrl?: string
+    imageCount?: number
   }) => {
     setMetadata(data.metadata)
     setChapters(data.chapters)
@@ -34,9 +42,11 @@ export function App() {
       author: data.metadata.author || prev.author,
       subtitle: data.metadata.subtitle || '',
       tag: data.suggestedTag || prev.tag,
+      customImage: data.coverDataUrl || prev.customImage,
+      backgroundType: data.coverDataUrl ? 'image' : prev.backgroundType,
     }))
-    // Automatically transition to cover designer
-    setActiveStep('cover')
+    // Transition to chapters to inspect extracted content and images
+    setActiveStep('chapters')
   }
 
   // Handle sample presets loading
@@ -92,7 +102,7 @@ export function App() {
               <div className="step-number">1</div>
               <div className="step-text">
                 <span className="step-heading">Importar Fuente</span>
-                <span className="step-subheading">PDF, Blog o Paper</span>
+                <span className="step-subheading">PDF, EPUB, Web o Texto</span>
               </div>
             </button>
 
@@ -106,7 +116,7 @@ export function App() {
               <div className="step-number">2</div>
               <div className="step-text">
                 <span className="step-heading">Diseñar Portada</span>
-                <span className="step-subheading">Fuentes, Colores y Estilo</span>
+                <span className="step-subheading">Fuentes, Colores e Imagen</span>
               </div>
             </button>
 
@@ -119,8 +129,10 @@ export function App() {
             >
               <div className="step-number">3</div>
               <div className="step-text">
-                <span className="step-heading">Capítulos e Índice</span>
-                <span className="step-subheading">{chapters.length} secciones</span>
+                <span className="step-heading">Capítulos e Imágenes</span>
+                <span className="step-subheading">
+                  {chapters.length} sec · {totalImages} {totalImages === 1 ? 'imagen' : 'imágenes'}
+                </span>
               </div>
             </button>
 

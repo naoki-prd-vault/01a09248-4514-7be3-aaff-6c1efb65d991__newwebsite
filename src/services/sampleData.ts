@@ -103,6 +103,100 @@ export const PRESET_THEMES: PresetTheme[] = [
   },
 ]
 
+// Vector diagrams encoded as Data URLs
+const TRANSFORMER_ARCHITECTURE_SVG = `data:image/svg+xml;utf8,${encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 480" width="100%" height="auto">
+  <defs>
+    <linearGradient id="bgG" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0b1329"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+    <linearGradient id="encG" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#2563eb"/>
+      <stop offset="100%" stop-color="#3b82f6"/>
+    </linearGradient>
+    <linearGradient id="decG" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#059669"/>
+      <stop offset="100%" stop-color="#10b981"/>
+    </linearGradient>
+    <linearGradient id="ffnG" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#7c3aed"/>
+      <stop offset="100%" stop-color="#a855f7"/>
+    </linearGradient>
+  </defs>
+  <rect width="760" height="480" rx="16" fill="url(#bgG)"/>
+  <text x="380" y="44" font-family="-apple-system, sans-serif" font-size="20" font-weight="700" fill="#f8fafc" text-anchor="middle">Figura 1: Arquitectura Transformer (Encoder &amp; Decoder)</text>
+  
+  <!-- Encoder Box -->
+  <rect x="70" y="80" width="280" height="340" rx="12" fill="none" stroke="#3b82f6" stroke-width="2" stroke-dasharray="6,4"/>
+  <text x="210" y="112" font-family="-apple-system, sans-serif" font-size="15" font-weight="700" fill="#60a5fa" text-anchor="middle">Bloque Encoder (N×)</text>
+  
+  <rect x="95" y="140" width="230" height="50" rx="8" fill="url(#ffnG)"/>
+  <text x="210" y="171" font-family="-apple-system, sans-serif" font-size="14" font-weight="600" fill="#ffffff" text-anchor="middle">Feed Forward Network</text>
+  
+  <rect x="95" y="215" width="230" height="50" rx="8" fill="url(#encG)"/>
+  <text x="210" y="246" font-family="-apple-system, sans-serif" font-size="14" font-weight="600" fill="#ffffff" text-anchor="middle">Multi-Head Self-Attention</text>
+  
+  <rect x="95" y="295" width="230" height="46" rx="8" fill="#1e293b" stroke="#64748b" stroke-width="1.5"/>
+  <text x="210" y="324" font-family="-apple-system, sans-serif" font-size="13" font-weight="500" fill="#94a3b8" text-anchor="middle">Positional Encoding + Inputs</text>
+  
+  <!-- Decoder Box -->
+  <rect x="410" y="80" width="280" height="340" rx="12" fill="none" stroke="#10b981" stroke-width="2" stroke-dasharray="6,4"/>
+  <text x="550" y="112" font-family="-apple-system, sans-serif" font-size="15" font-weight="700" fill="#34d399" text-anchor="middle">Bloque Decoder (N×)</text>
+  
+  <rect x="435" y="140" width="230" height="46" rx="8" fill="url(#ffnG)"/>
+  <text x="550" y="168" font-family="-apple-system, sans-serif" font-size="14" font-weight="600" fill="#ffffff" text-anchor="middle">Feed Forward Network</text>
+  
+  <rect x="435" y="205" width="230" height="46" rx="8" fill="url(#decG)"/>
+  <text x="550" y="233" font-family="-apple-system, sans-serif" font-size="14" font-weight="600" fill="#ffffff" text-anchor="middle">Cross-Attention (Enc-Dec)</text>
+  
+  <rect x="435" y="270" width="230" height="46" rx="8" fill="url(#decG)"/>
+  <text x="550" y="298" font-family="-apple-system, sans-serif" font-size="14" font-weight="600" fill="#ffffff" text-anchor="middle">Masked Self-Attention</text>
+  
+  <rect x="435" y="335" width="230" height="42" rx="8" fill="#1e293b" stroke="#64748b" stroke-width="1.5"/>
+  <text x="550" y="361" font-family="-apple-system, sans-serif" font-size="13" font-weight="500" fill="#94a3b8" text-anchor="middle">Output Embeddings (Shifted)</text>
+  
+  <!-- Connecting Cross Arrow -->
+  <path d="M 325 240 L 435 228" stroke="#f59e0b" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+  <text x="380" y="222" font-family="-apple-system, sans-serif" font-size="11" font-weight="700" fill="#fbbf24" text-anchor="middle">K, V</text>
+  <text x="380" y="450" font-family="-apple-system, sans-serif" font-size="12" fill="#64748b" text-anchor="middle">EpubCraft Architecture Visualization · Optimized for Apple Books</text>
+</svg>
+`)}`
+
+const CREATIVE_FRONTIER_SVG = `data:image/svg+xml;utf8,${encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 380" width="100%" height="auto">
+  <defs>
+    <linearGradient id="bgWarm" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fffbeb"/>
+      <stop offset="100%" stop-color="#fef3c7"/>
+    </linearGradient>
+    <linearGradient id="curveGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#d97706"/>
+      <stop offset="100%" stop-color="#dc2626"/>
+    </linearGradient>
+  </defs>
+  <rect width="720" height="380" rx="16" fill="url(#bgWarm)" stroke="#fde68a" stroke-width="2"/>
+  <text x="360" y="44" font-family="-apple-system, Georgia, serif" font-size="20" font-weight="700" fill="#78350f" text-anchor="middle">Mapa de la Frontera Creativa</text>
+  
+  <!-- Circles diagram -->
+  <circle cx="200" cy="200" r="110" fill="#fed7aa" fill-opacity="0.45" stroke="#f97316" stroke-width="2"/>
+  <text x="200" y="170" font-family="-apple-system, sans-serif" font-size="14" font-weight="700" fill="#9a3412" text-anchor="middle">Aptitud Natural</text>
+  <text x="200" y="195" font-family="-apple-system, sans-serif" font-size="12" fill="#c2410c" text-anchor="middle">Tus fortalezas únicas</text>
+  
+  <circle cx="360" cy="200" r="110" fill="#bbf7d0" fill-opacity="0.45" stroke="#16a34a" stroke-width="2"/>
+  <text x="360" y="170" font-family="-apple-system, sans-serif" font-size="14" font-weight="700" fill="#14532d" text-anchor="middle">Curiosidad Obsesiva</text>
+  <text x="360" y="195" font-family="-apple-system, sans-serif" font-size="12" fill="#166534" text-anchor="middle">Energía intrínseca</text>
+  
+  <circle cx="520" cy="200" r="110" fill="#bfdbfe" fill-opacity="0.45" stroke="#2563eb" stroke-width="2"/>
+  <text x="520" y="170" font-family="-apple-system, sans-serif" font-size="14" font-weight="700" fill="#1e3a8a" text-anchor="middle">Frontera Abierta</text>
+  <text x="520" y="195" font-family="-apple-system, sans-serif" font-size="12" fill="#1e40af" text-anchor="middle">Preguntas sin resolver</text>
+  
+  <!-- Central Intersection label -->
+  <rect x="290" y="270" width="140" height="34" rx="17" fill="#b45309"/>
+  <text x="360" y="292" font-family="-apple-system, sans-serif" font-size="12" font-weight="700" fill="#ffffff" text-anchor="middle">GRAN TRABAJO</text>
+  <text x="360" y="348" font-family="-apple-system, sans-serif" font-size="12" font-style="italic" fill="#92400e" text-anchor="middle">"La intersección donde el esfuerzo diario se convierte en maestría duradera."</text>
+</svg>
+`)}`
 export const SAMPLE_PAPER = {
   metadata: {
     title: 'Attention Is All You Need',
@@ -160,6 +254,10 @@ export const SAMPLE_PAPER = {
       content: `
         <p>La mayoría de los modelos neuronales de transducción de secuencias competitivos tienen una estructura de codificador-decodificador. Aquí, el codificador mapea una secuencia de entrada de representaciones de símbolos a una secuencia de representaciones continuas.</p>
         <p>Dada la secuencia codificada, el decodificador luego genera una secuencia de salida de símbolos elemento por elemento. En cada paso, el modelo es auto-regresivo, consumiendo los símbolos generados previamente como entrada adicional al generar el siguiente.</p>
+        <figure class="epub-figure">
+          <img src="${TRANSFORMER_ARCHITECTURE_SVG}" alt="Diagrama de la Arquitectura Transformer" />
+          <figcaption>Figura 1: Arquitectura Transformer completa mostrando el flujo entre Encoder y Decoder con atención multi-cabeza.</figcaption>
+        </figure>
         <h3>Scaled Dot-Product Attention</h3>
         <p>Llamamos a nuestra atención particular <strong>Scaled Dot-Product Attention</strong>. La entrada consiste en consultas (queries) y claves (keys) de dimensión d_k, y valores (values) de dimensión d_v. Calculamos los productos punto de la consulta con todas las claves, dividimos cada uno por la raíz cuadrada de d_k, y aplicamos una función softmax para obtener los pesos de los valores.</p>
         <p>En la práctica, calculamos la función de atención en un conjunto de consultas simultáneamente, empaquetadas juntas en una matriz Q. Las claves y valores también se empaquetan en matrices K y V.</p>
@@ -222,6 +320,10 @@ export const SAMPLE_BLOG = {
       title: 'Aprender lo suficiente hasta el límite',
       content: `
         <p>Una vez que encuentras algo que te interesa, el siguiente paso es aprender lo suficiente sobre el campo hasta alcanzar su frontera actual. El conocimiento se expande como un fractal; desde lejos parece suave, pero cuando te acercas a cualquier borde, está lleno de preguntas abiertas y vacíos que nadie ha resuelto todavía.</p>
+        <figure class="epub-figure">
+          <img src="${CREATIVE_FRONTIER_SVG}" alt="Diagrama de los tres círculos del gran trabajo" />
+          <figcaption>Ilustración: La convergencia entre aptitud natural, curiosidad obsesiva y frontera abierta de conocimiento.</figcaption>
+        </figure>
         <p>Llegar a la frontera requiere esfuerzo y constancia, pero notarás que el esfuerzo no pesa cuando la curiosidad genuina es tu motor principal. En ese punto, empiezas a notar las cosas que la gente suele pasar por alto.</p>
       `,
     },
