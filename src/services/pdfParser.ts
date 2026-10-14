@@ -16,9 +16,25 @@ export interface PdfParseResult {
   extractedImagesCount: number
 }
 
-interface ValidPdfTextItem {
+interface PdfTextToken {
   str: string
-  transform: number[]
+  x: number
+  y: number
+  width: number
+  height: number
+  fontSize: number
+  fontName: string
+  isBold: boolean
+}
+
+interface PdfLine {
+  text: string
+  y: number
+  x: number
+  fontSize: number
+  isBold: boolean
+  isCentered?: boolean
+  tokens: PdfTextToken[]
 }
 
 function convertPdfImageToDataUrl(imgData: any): string | null {
@@ -61,10 +77,8 @@ function convertPdfImageToDataUrl(imgData: any): string | null {
     const totalPixels = width * height
 
     if (data.length === totalPixels * 4) {
-      // RGBA
       target.set(data)
     } else if (data.length === totalPixels * 3) {
-      // RGB
       let j = 0
       for (let i = 0; i < data.length; i += 3) {
         target[j] = data[i]
@@ -74,7 +88,6 @@ function convertPdfImageToDataUrl(imgData: any): string | null {
         j += 4
       }
     } else if (data.length === totalPixels) {
-      // Grayscale
       let j = 0
       for (let i = 0; i < data.length; i++) {
         const val = data[i]
@@ -85,7 +98,6 @@ function convertPdfImageToDataUrl(imgData: any): string | null {
         j += 4
       }
     } else {
-      // Unknown format or 1-bit mask
       return null
     }
 
@@ -120,7 +132,6 @@ async function extractImagesFromPdfPage(
       }
     }
 
-    // Attempt to retrieve images from page.objs or commonObjs
     for (const name of imageNames) {
       try {
         const imgObj = await new Promise<any>((resolve) => {
@@ -187,7 +198,6 @@ export async function parsePdfFile(
   let docTitle = file.name.replace(/\.[^/.]+$/, '')
   let docAuthor = ''
 
-  // Attempt to read metadata from PDF
   try {
     const meta = await pdf.getMetadata()
     const info = meta.info as Record<string, unknown> | undefined
@@ -203,69 +213,107 @@ export async function parsePdfFile(
     console.warn('Could not read PDF metadata', err)
   }
 
-  const pagesData: {
+  interface PageData {
     pageNumber: number
-    text: string
-    lines: string[]
+    lines: PdfLine[]
     images: string[]
-  }[] = []
+    pageWidth: number
+    pageHeight: number
+  }
+
+  const pagesData: PageData[] = []
   let fullText = ''
   let totalExtractedImages = 0
+  const allFontSizes: number[] = []
 
   for (let i = 1; i <= pageCount; i++) {
     onProgress?.({
       current: i,
       total: pageCount,
-      stage: `Procesando página ${i} de ${pageCount} (texto e imágenes)...`,
+      stage: `Analizando estructura y tipografía de página ${i} de ${pageCount}...`,
     })
 
     const page = await pdf.getPage(i)
+    const viewport = page.getViewport({ scale: 1.0 })
     const textContent = await page.getTextContent()
 
-    // Collect valid text items
-    const items: ValidPdfTextItem[] = []
-    for (const rawItem of textContent.items) {
-      if ('str' in rawItem && 'transform' in rawItem && Array.isArray(rawItem.transform)) {
-        items.push({ str: rawItem.str, transform: rawItem.transform })
-      }
-    }
+    // 1. Extract tokens with spatial coordinates and font size
+    const tokens: PdfTextToken[] = []
+    for (const item of textContent.items) {
+      if ('str' in item && 'transform' in item && Array.isArray(item.transform)) {
+        const text = item.str
+        if (!text) continue
 
-    // Line grouping by Y-coordinate
-    let lastY: number | null = null
-    const lines: string[] = []
-    let currentLine = ''
+        // transform: [scaleX, skewY, skewX, scaleY, tx, ty]
+        const tx = item.transform[4]
+        const ty = item.transform[5]
+        const scaleX = Math.hypot(item.transform[0], item.transform[1])
+        const scaleY = Math.hypot(item.transform[2], item.transform[3])
+        const fontSize = Math.max(scaleX, scaleY) || item.height || 10
+        const fontName = ('fontName' in item && typeof item.fontName === 'string') ? item.fontName : ''
+        const isBold = /bold|black|heavy|semibold/i.test(fontName)
 
-    for (const item of items) {
-      const y = item.transform[5]
-      if (lastY === null || Math.abs(y - lastY) < 4) {
-        currentLine += (currentLine ? ' ' : '') + item.str
-      } else {
-        if (currentLine.trim()) {
-          lines.push(currentLine.trim())
+        if (text.trim().length > 0) {
+          allFontSizes.push(fontSize)
         }
-        currentLine = item.str
+
+        tokens.push({
+          str: text,
+          x: tx,
+          y: ty,
+          width: item.width || text.length * (fontSize * 0.5),
+          height: item.height || fontSize,
+          fontSize,
+          fontName,
+          isBold,
+        })
       }
-      lastY = y
-    }
-    if (currentLine.trim()) {
-      lines.push(currentLine.trim())
     }
 
-    const pageJoined = lines.join('\n')
+    // 2. Sort tokens top-to-bottom (y descending), left-to-right (x ascending)
+    tokens.sort((a, b) => {
+      const dy = Math.abs(a.y - b.y)
+      if (dy < 4) {
+        return a.x - b.x
+      }
+      return b.y - a.y // higher Y in PDF is higher on page
+    })
 
-    // Extract images from this page
+    // 3. Group tokens into lines based on Y-proximity
+    const lines: PdfLine[] = []
+    let currentLineTokens: PdfTextToken[] = []
+    let currentLineY: number | null = null
+
+    for (const token of tokens) {
+      if (currentLineY === null || Math.abs(token.y - currentLineY) < Math.max(4, token.fontSize * 0.45)) {
+        currentLineTokens.push(token)
+        if (currentLineY === null) currentLineY = token.y
+      } else {
+        if (currentLineTokens.length > 0) {
+          lines.push(buildPdfLine(currentLineTokens, currentLineY!))
+        }
+        currentLineTokens = [token]
+        currentLineY = token.y
+      }
+    }
+    if (currentLineTokens.length > 0 && currentLineY !== null) {
+      lines.push(buildPdfLine(currentLineTokens, currentLineY))
+    }
+
+    // 4. Extract embedded images
     let pageImages = await extractImagesFromPdfPage(page, i)
 
-    // Fallback: If page has essentially no text (e.g. scanned page or full graphic), render page as visual image
-    if (pageJoined.trim().length < 35 && pageImages.length === 0) {
+    // Fallback: graphical page render if page has virtually no text
+    const pagePlainText = lines.map(l => l.text).join(' ').trim()
+    if (pagePlainText.length < 35 && pageImages.length === 0) {
       try {
-        const viewport = page.getViewport({ scale: 1.5 })
+        const renderViewport = page.getViewport({ scale: 1.5 })
         const canvas = document.createElement('canvas')
-        canvas.width = viewport.width
-        canvas.height = viewport.height
+        canvas.width = renderViewport.width
+        canvas.height = renderViewport.height
         const ctx = canvas.getContext('2d')
         if (ctx) {
-          await page.render({ canvasContext: ctx, viewport, canvas }).promise
+          await page.render({ canvasContext: ctx, viewport: renderViewport, canvas }).promise
           const pageImg = canvas.toDataURL('image/jpeg', 0.85)
           pageImages = [pageImg]
         }
@@ -278,107 +326,23 @@ export async function parsePdfFile(
 
     pagesData.push({
       pageNumber: i,
-      text: pageJoined,
       lines,
       images: pageImages,
+      pageWidth: viewport.width,
+      pageHeight: viewport.height,
     })
-    fullText += pageJoined + '\n\n'
+
+    fullText += lines.map(l => l.text).join('\n') + '\n\n'
   }
 
-  // Detect chapters and integrate their respective images:
-  const chapters: Chapter[] = []
-  const chapterRegex = /^(cap[ií]tulo\s+\d+|chapter\s+\d+|secci[oó]n\s+\d+|\d+\.\s+[A-ZÁÉÍÓÚÑ]|resumen|abstract|introducci[oó]n|conclusi[oó]n|referencias|references)/i
+  // 5. Determine base font size (median/mode) to reliably recognize titles, headings, and subtitles
+  allFontSizes.sort((a, b) => a - b)
+  const baseFontSize = allFontSizes.length > 0
+    ? allFontSizes[Math.floor(allFontSizes.length * 0.5)]
+    : 11
 
-  // If group by pages (short document or uniform distribution):
-  const pagesPerChapter = pageCount > 20 ? 5 : (pageCount > 8 ? 3 : 1)
-  
-  // First test if headings exist
-  let foundHeadings = 0
-  for (const p of pagesData) {
-    for (const l of p.lines) {
-      if (l.length < 80 && chapterRegex.test(l)) {
-        foundHeadings++
-      }
-    }
-  }
-
-  if (foundHeadings >= 2) {
-    // Build chapters by headings, carrying over images from pages
-    let currentChapTitle = 'Inicio'
-    let currentChapHtmlParts: string[] = []
-
-    for (const p of pagesData) {
-      // Paragraphs in page
-      const pageParas = p.text.split(/\n\s*\n/).map(t => t.trim()).filter(Boolean)
-
-      for (const para of pageParas) {
-        const firstLine = para.split('\n')[0].trim()
-        const isHeading = firstLine.length < 85 && chapterRegex.test(firstLine)
-
-        if (isHeading && currentChapHtmlParts.length > 0) {
-          chapters.push({
-            id: 'chap-' + (chapters.length + 1),
-            title: currentChapTitle,
-            content: currentChapHtmlParts.join('\n'),
-          })
-          currentChapTitle = firstLine.replace(/^[#\s]+/, '')
-          const rest = para.substring(firstLine.length).trim()
-          currentChapHtmlParts = rest ? [`<p>${escapeText(rest)}</p>`] : []
-        } else {
-          currentChapHtmlParts.push(`<p>${escapeText(para)}</p>`)
-        }
-      }
-
-      // Add images found on this page into the chapter body
-      if (p.images.length > 0) {
-        for (let imgIdx = 0; imgIdx < p.images.length; imgIdx++) {
-          const imgUrl = p.images[imgIdx]
-          currentChapHtmlParts.push(
-            `<figure class="epub-figure"><img src="${imgUrl}" alt="Figura pág. ${p.pageNumber}" /><figcaption>Figura ilustrativa (Pág. ${p.pageNumber})</figcaption></figure>`
-          )
-        }
-      }
-    }
-
-    if (currentChapHtmlParts.length > 0) {
-      chapters.push({
-        id: 'chap-' + (chapters.length + 1),
-        title: currentChapTitle,
-        content: currentChapHtmlParts.join('\n'),
-      })
-    }
-  }
-
-  // Fallback: group by pages if headings were sparse or absent
-  let finalChapters = chapters
-  if (finalChapters.length <= 1) {
-    finalChapters = []
-    for (let i = 0; i < pagesData.length; i += pagesPerChapter) {
-      const slice = pagesData.slice(i, i + pagesPerChapter)
-      const startPage = i + 1
-      const endPage = Math.min(i + pagesPerChapter, pageCount)
-      const title = startPage === endPage ? `Página ${startPage}` : `Páginas ${startPage} - ${endPage}`
-
-      const parts: string[] = []
-      for (const p of slice) {
-        const paras = p.text.split(/\n\s*\n/).map(t => t.trim()).filter(Boolean)
-        paras.forEach(para => parts.push(`<p>${escapeText(para)}</p>`))
-
-        // Embed images
-        p.images.forEach((imgUrl, imgIdx) => {
-          parts.push(
-            `<figure class="epub-figure"><img src="${imgUrl}" alt="Figura pág. ${p.pageNumber}" /><figcaption>Figura ${imgIdx + 1} (Pág. ${p.pageNumber})</figcaption></figure>`
-          )
-        })
-      }
-
-      finalChapters.push({
-        id: `page-group-${i + 1}`,
-        title,
-        content: parts.join('\n') || '<p>Contenido extraído del documento.</p>',
-      })
-    }
-  }
+  // 6. Format pages into structured HTML blocks with titles, dividers, lists and proper spacing
+  const formattedSections = processPdfPagesToSections(pagesData, baseFontSize, docTitle)
 
   return {
     metadata: {
@@ -386,7 +350,7 @@ export async function parsePdfFile(
       author: docAuthor || 'Autor del Documento',
       originalFilename: file.name,
     },
-    chapters: finalChapters.length > 0 ? finalChapters : [
+    chapters: formattedSections.length > 0 ? formattedSections : [
       {
         id: 'chap-1',
         title: docTitle,
@@ -399,9 +363,286 @@ export async function parsePdfFile(
   }
 }
 
+function buildPdfLine(tokens: PdfTextToken[], y: number): PdfLine {
+  // Sort tokens horizontally
+  tokens.sort((a, b) => a.x - b.x)
+
+  let lineText = ''
+  let lastXEnd = 0
+  let maxFontSize = 0
+  let hasBold = false
+
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i]
+    if (t.fontSize > maxFontSize) maxFontSize = t.fontSize
+    if (t.isBold) hasBold = true
+
+    if (i === 0) {
+      lineText += t.str
+    } else {
+      const spaceWidth = t.fontSize * 0.28
+      const gap = t.x - lastXEnd
+      if (gap > spaceWidth && !lineText.endsWith(' ') && !t.str.startsWith(' ')) {
+        lineText += ' '
+      }
+      lineText += t.str
+    }
+    lastXEnd = t.x + t.width
+  }
+
+  return {
+    text: lineText.trim(),
+    y,
+    x: tokens[0]?.x || 0,
+    fontSize: maxFontSize,
+    isBold: hasBold,
+    tokens,
+  }
+}
+
+/**
+ * Parses lines across all pages into clean, semantic HTML with:
+ * - Proper Titles (H1), Headings (H2), Subheadings (H3, H4)
+ * - Section Dividers (<hr class="epub-divider"/>)
+ * - Bullet / Numbered Lists (<ul><li>, <ol><li>)
+ * - Paragraph breaks with spacing preserved
+ * - De-hyphenated lines (e.g. "connec- \n tion" -> "connection")
+ * - Filtered running headers / footers / page numbers
+ */
+function processPdfPagesToSections(
+  pages: { pageNumber: number; lines: PdfLine[]; images: string[]; pageWidth: number; pageHeight: number }[],
+  baseFontSize: number,
+  fallbackTitle: string
+): Chapter[] {
+  const chapters: Chapter[] = []
+  const majorHeadingRegex = /^(cap[ií]tulo\s+\d+|chapter\s+\d+|secci[oó]n\s+\d+|\d+\.?\s+[A-ZÁÉÍÓÚÑ]{2,}|resumen|abstract|introducci[oó]n|conclusi[oó]n|conclusiones|referencias|references|agradecimientos|acknowledgements|ap[eé]ndice|appendix)/i
+
+  let currentChapterTitle = fallbackTitle || 'Inicio'
+  let currentHtmlBlocks: string[] = []
+
+  // Check if we have detected headings that qualify as chapter boundaries
+  let detectedChapterCount = 0
+  for (const page of pages) {
+    for (const line of page.lines) {
+      const text = line.text.trim()
+      const isLargeHeading = line.fontSize >= baseFontSize * 1.35 && text.length < 80
+      const isPatternHeading = majorHeadingRegex.test(text) && text.length < 90
+      if (isLargeHeading || isPatternHeading) {
+        detectedChapterCount++
+      }
+    }
+  }
+
+  // Iterate over each page
+  for (let pIdx = 0; pIdx < pages.length; pIdx++) {
+    const page = pages[pIdx]
+    const filteredLines: PdfLine[] = []
+
+    // 1. Suppress running header & footer (e.g. single digit page number alone at bottom/top)
+    for (let lIdx = 0; lIdx < page.lines.length; lIdx++) {
+      const line = page.lines[lIdx]
+      const text = line.text.trim()
+      if (!text) continue
+
+      // Solitary page number check: e.g. "1" or "- 1 -" or "Página 1"
+      const isPageNum = /^(\d+|-\s*\d+\s*-|p[aá]g\.?\s*\d+|page\s*\d+)$/i.test(text)
+      const isAtEdge = lIdx === 0 || lIdx === page.lines.length - 1
+      if (isPageNum && isAtEdge) {
+        continue
+      }
+      filteredLines.push(line)
+    }
+
+    // 2. Process lines into paragraphs, headings, lists, dividers
+    let currentParagraphText = ''
+    let inList = false
+    let listItems: string[] = []
+    let lastLineY: number | null = null
+    let lastLineFontSize = baseFontSize
+
+    const flushList = () => {
+      if (inList && listItems.length > 0) {
+        currentHtmlBlocks.push(
+          `<ul class="epub-list">\n${listItems.map((item) => `  <li>${escapeText(item)}</li>`).join('\n')}\n</ul>`
+        )
+        listItems = []
+        inList = false
+      }
+    }
+
+    const flushParagraph = () => {
+      if (currentParagraphText.trim()) {
+        flushList()
+        currentHtmlBlocks.push(`<p>${formatInlineTypography(currentParagraphText.trim())}</p>`)
+        currentParagraphText = ''
+      }
+    }
+
+    for (let lIdx = 0; lIdx < filteredLines.length; lIdx++) {
+      const line = filteredLines[lIdx]
+      const text = line.text.trim()
+      if (!text) continue
+
+      const isLargeFont = line.fontSize >= baseFontSize * 1.3
+      const isMediumHeading = line.fontSize >= baseFontSize * 1.15 || (line.isBold && text.length < 70)
+      const isNumberedSection = /^(\d+(\.\d+)*)\s+([A-ZÁÉÍÓÚÑ].{2,65})$/.test(text)
+      const isMajorHeadingPattern = majorHeadingRegex.test(text) && text.length < 90
+
+      // Check if this line is an explicit Divider (e.g., "* * *", "---", "___", "•••")
+      if (/^(\*{3,}|-{3,}|_{3,}|•{3,}|(\*\s*){3,})$/.test(text)) {
+        flushParagraph()
+        flushList()
+        currentHtmlBlocks.push('<hr class="epub-divider" />')
+        lastLineY = line.y
+        continue
+      }
+
+      // Check if this is a List Item (bullet, hyphen, or "1. ", "a) ")
+      const listBulletMatch = text.match(/^([•\-\–\*\u2022]|\d+[\.\)]|[a-zA-Z][\.\)])\s+(.+)$/)
+      if (listBulletMatch) {
+        flushParagraph()
+        inList = true
+        listItems.push(listBulletMatch[2].trim())
+        lastLineY = line.y
+        continue
+      } else if (inList) {
+        // If still in list and indented or short line, continue list item or flush
+        const prevItem = listItems[listItems.length - 1]
+        if (prevItem && !text.endsWith('.') && text.length < 80 && !isLargeFont && !isMediumHeading) {
+          listItems[listItems.length - 1] = prevItem + ' ' + text
+          lastLineY = line.y
+          continue
+        } else {
+          flushList()
+        }
+      }
+
+      // Check if this is a Major Chapter Heading
+      if ((isLargeFont && text.length < 75) || isMajorHeadingPattern) {
+        flushParagraph()
+        flushList()
+
+        if (detectedChapterCount >= 2 && currentHtmlBlocks.length > 0) {
+          // Commit previous chapter
+          chapters.push({
+            id: `chap-${chapters.length + 1}`,
+            title: currentChapterTitle,
+            content: currentHtmlBlocks.join('\n\n'),
+          })
+          currentHtmlBlocks = []
+          currentChapterTitle = text.replace(/^[#\s]+/, '').replace(/^cap[ií]tulo\s+\d+[:\.\s]*/i, '') || text
+        } else {
+          currentHtmlBlocks.push(`<h2>${escapeText(text)}</h2>`)
+        }
+        lastLineY = line.y
+        continue
+      }
+
+      // Check if this is a Subheading (H3 or H4)
+      if (isMediumHeading || isNumberedSection) {
+        flushParagraph()
+        flushList()
+        const tag = line.fontSize >= baseFontSize * 1.2 ? 'h3' : 'h4'
+        currentHtmlBlocks.push(`<${tag}>${escapeText(text)}</${tag}>`)
+        lastLineY = line.y
+        continue
+      }
+
+      // Regular paragraph line
+      // Check for paragraph gap spacing (empty line or vertical jump in PDF)
+      const isVerticalGap = lastLineY !== null && Math.abs(lastLineY - line.y) > (lastLineFontSize * 1.7)
+      if (isVerticalGap && currentParagraphText.trim()) {
+        flushParagraph()
+      }
+
+      // De-hyphenate line wrap (e.g. "impor-" + "tante" -> "importante")
+      if (currentParagraphText.endsWith('-') && !currentParagraphText.endsWith(' -')) {
+        currentParagraphText = currentParagraphText.slice(0, -1) + text
+      } else {
+        currentParagraphText += (currentParagraphText ? ' ' : '') + text
+      }
+
+      lastLineY = line.y
+      lastLineFontSize = line.fontSize
+    }
+
+    flushParagraph()
+    flushList()
+
+    // 3. Attach images detected on this page
+    if (page.images.length > 0) {
+      for (let imgIdx = 0; imgIdx < page.images.length; imgIdx++) {
+        const imgUrl = page.images[imgIdx]
+        currentHtmlBlocks.push(
+          `<figure class="epub-figure">
+  <img src="${imgUrl}" alt="Figura pág. ${page.pageNumber}" />
+  <figcaption>Figura ilustrativa (Pág. ${page.pageNumber})</figcaption>
+</figure>`
+        )
+      }
+    }
+
+    // Insert an elegant subtle section divider between pages if chapter has substantial content
+    if (pIdx < pages.length - 1 && detectedChapterCount < 2 && page.lines.length > 3) {
+      currentHtmlBlocks.push('<hr class="epub-divider" />')
+    }
+  }
+
+  // Push remaining content
+  if (currentHtmlBlocks.length > 0) {
+    chapters.push({
+      id: `chap-${chapters.length + 1}`,
+      title: currentChapterTitle,
+      content: currentHtmlBlocks.join('\n\n'),
+    })
+  }
+
+  // If only 1 huge chapter resulted from a multi-page document without headings,
+  // group logically by pages to keep reading comfortable:
+  if (chapters.length <= 1 && pages.length > 6) {
+    const pPerChap = pages.length > 20 ? 5 : 3
+    const groupedChapters: Chapter[] = []
+    for (let i = 0; i < pages.length; i += pPerChap) {
+      const slice = pages.slice(i, i + pPerChap)
+      const start = i + 1
+      const end = Math.min(i + pPerChap, pages.length)
+      const title = start === end ? `Sección (Pág. ${start})` : `Sección ${Math.floor(i / pPerChap) + 1} (Págs. ${start} - ${end})`
+
+      const parts: string[] = []
+      for (const p of slice) {
+        // extract paras
+        const linesText = p.lines.map(l => l.text)
+        const paras = linesText.join('\n').split(/\n\s*\n/).filter(Boolean)
+        paras.forEach(para => parts.push(`<p>${formatInlineTypography(para.trim())}</p>`))
+        p.images.forEach(img => {
+          parts.push(
+            `<figure class="epub-figure"><img src="${img}" alt="Figura" /><figcaption>Ilustración (Pág. ${p.pageNumber})</figcaption></figure>`
+          )
+        })
+      }
+
+      groupedChapters.push({
+        id: `chap-${groupedChapters.length + 1}`,
+        title,
+        content: parts.join('\n\n'),
+      })
+    }
+    return groupedChapters
+  }
+
+  return chapters
+}
+
 function escapeText(str: string): string {
   return str
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
+}
+
+function formatInlineTypography(text: string): string {
+  let escaped = escapeText(text)
+  // Preserve bold quotes or citations
+  escaped = escaped.replace(/"([^"]{4,})"/g, '«$1»')
+  return escaped
 }

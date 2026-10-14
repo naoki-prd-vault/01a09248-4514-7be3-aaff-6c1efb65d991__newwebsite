@@ -3,7 +3,7 @@ import { FileUp, Link2, Edit3, Loader2, AlertCircle, CheckCircle2, ArrowRight, B
 import type { SourceType, BookMetadata, Chapter } from '../types'
 import { parsePdfFile } from '../services/pdfParser'
 import { parseEpubFile } from '../services/epubParser'
-import { fetchWebArticle } from '../services/webArticleFetcher'
+import { fetchWebArticle, parseMarkdownArticle } from '../services/webArticleFetcher'
 
 interface SourceSelectorProps {
   onDataLoaded: (data: {
@@ -148,21 +148,41 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({ onDataLoaded }) 
     }
     setErrorMessage('')
 
-    const paras = manualContent
-      .split(/\n\s*\n/)
-      .map((p) => p.trim())
-      .filter(Boolean)
+    let chapters: Chapter[]
+    let imageCount = 0
 
-    const chapters: Chapter[] = [
-      {
-        id: 'manual-1',
-        title: manualTitle,
-        content:
-          paras.length > 0
-            ? paras.map((p) => `<p>${p.replace(/\n/g, '<br/>')}</p>`).join('\n')
-            : '<p>Documento preparado para Apple Books.</p>',
-      },
-    ]
+    // If manual content has markdown indicators or HTML tags
+    if (
+      manualContent.includes('#') ||
+      manualContent.includes('---') ||
+      manualContent.includes('> ') ||
+      manualContent.includes('```') ||
+      manualContent.includes('<p>') ||
+      manualContent.includes('<figure>')
+    ) {
+      const parsed = parseMarkdownArticle(manualContent, '')
+      chapters = parsed.chapters
+      imageCount = parsed.imageCount
+      if (chapters.length === 1 && (chapters[0].title === 'Artículo Web' || chapters[0].title === 'Introducción')) {
+        chapters[0].title = manualTitle.trim()
+      }
+    } else {
+      const paras = manualContent
+        .split(/\n\s*\n/)
+        .map((p) => p.trim())
+        .filter(Boolean)
+
+      chapters = [
+        {
+          id: 'manual-1',
+          title: manualTitle.trim(),
+          content:
+            paras.length > 0
+              ? paras.map((p) => `<p>${p.replace(/\n/g, '<br/>')}</p>`).join('\n')
+              : '<p>Documento preparado para Apple Books.</p>',
+        },
+      ]
+    }
 
     onDataLoaded({
       metadata: {
@@ -174,6 +194,7 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({ onDataLoaded }) 
       },
       chapters,
       suggestedTag: 'PAPER / ENSAYO',
+      imageCount,
     })
   }
 
